@@ -1,5 +1,5 @@
 ![Alt text](/logo.png)
-LiteNotes is a lightweight markdown viewer and developer-notes system for Lite XL.  
+A lightweight markdown viewer and developer-notes system for [Lite XL](https://github.com/lite-xl/lite-xl)
 It provides a **single dedicated notes panel** capable of:
 
 
