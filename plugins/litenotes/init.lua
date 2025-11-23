@@ -174,7 +174,7 @@ local function replace_view(old_view, new_view)
   end
 end
 
--- enter_read_mode(editor) - From NoteEditView → appropriate NoteReadView (project/markdown).
+-- enter_read_mode(editor) - From NoteEditView -> appropriate NoteReadView (project/markdown).
 local function enter_read_mode(editor)
   local doc = editor.doc
   if not doc then
@@ -196,7 +196,7 @@ local function enter_read_mode(editor)
   replace_view(editor, reader)
 end
 
--- enter_edit_mode(reader) - From NoteReadView → NoteEditView, remembering kind.
+-- enter_edit_mode(reader) - From NoteReadView -> NoteEditView, remembering kind.
 local function enter_edit_mode(reader)
   local doc = reader.doc
   if not doc then
@@ -209,11 +209,35 @@ local function enter_edit_mode(reader)
 end
 
 ----------------------------------------------------------------------
+-- VIEWS ARCHITECTURE NOTE (PLEASE READ)
+-- 
+-- 1. PERSISTENCE SPLIT:
+--    We maintain separate classes for ProjectNoteView and MarkdownNoteView.
+--    This is required for Lite XL's workspace serialization. We only register
+--    ProjectNoteView in package.loaded, ensuring project notes persist
+--    restarts, while generic Markdown views remain ephemeral.
+--
+-- 2. STATUS BAR "FAKE ID" (:is Override):
+--    Lite XL's default status bar has a strict check: `view:is(core.docview)`.
+--    To display standard file info (Line, Col, Filename) without writing custom 
+--    status bar widgets, we override the :is() method in our views.
+--    If the status bar asks "Are you a DocView?", we return true.
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
 -- EDIT VIEW
 -- Editable note view, snaps back to read-mode on focus loss.
 ----------------------------------------------------------------------
 
 NoteEditView = DocView:extend()
+
+-- [HACK] Fake ID for Status Bar
+function NoteEditView:is(class)
+  if class == require("core.docview") then 
+    return true 
+  end
+  return NoteEditView.super.is(self, class)
+end
 
 -- NoteEditView:new(doc, kind) - Create edit view for a given doc and kind ("project"/"markdown").
 function NoteEditView:new(doc, kind)
@@ -238,8 +262,6 @@ function NoteEditView:update()
 end
 
 -- NoteEditView:get_name() - Tab title for edit mode.
--- Project:  "Edit:<projectdir>"
--- Markdown: "Edit:<filename>"
 function NoteEditView:get_name()
   local kind = self._litenotes_kind or "project"
   return build_note_title(kind, "Edit:", self.doc)
@@ -251,6 +273,14 @@ end
 ----------------------------------------------------------------------
 
 NoteReadView = View:extend()
+
+-- [HACK] Fake ID for Status Bar (Read mode has no cursor, but we want filename info)
+function NoteReadView:is(class)
+  if class == require("core.docview") then 
+    return true 
+  end
+  return NoteReadView.super.is(self, class)
+end
 
 -- NoteReadView:new(doc, kind) - Base reader for notes ("project" or "markdown").
 function NoteReadView:new(doc, kind)
@@ -264,8 +294,6 @@ function NoteReadView:new(doc, kind)
 end
 
 -- NoteReadView:get_name() - Tab title for read mode.
--- Project:  "Note:<projectdir>"
--- Markdown: "Note:<filename>"
 function NoteReadView:get_name()
   local kind = self._litenotes_kind or "project"
   return build_note_title(kind, "Note:", self.doc)
@@ -285,7 +313,7 @@ function NoteReadView:on_mouse_pressed(button, x, y, clicks)
   return false
 end
 
--- NoteReadView:draw_plain_text() - Simple line-by-line text rendering (placeholder for markdown layout).
+-- NoteReadView:draw_plain_text() - Simple line-by-line text rendering.
 function NoteReadView:draw_plain_text(doc, x, y, w, h)
   local font   = NoteFontRegular
   local line_h = font:get_height()
@@ -494,29 +522,34 @@ end
 ----------------------------------------------------------------------
 -- COMMANDS
 ----------------------------------------------------------------------
-
+--[[]]
 command.add(nil, {
 
-  -- litenotes:open-notes - Always open/focus the per-project notes view in the LiteNotes panel.
+  -- litenotes:devnotes - Always open/focus the per-project notes view in the LiteNotes panel.
   ["litenotes:devnotes"] = function()
     open_project_notes_view()
   end,
 
-  -- litenotes:note-here - Context-aware Note:
+  -- litenotes:note - Context-aware Note:
   -- If active view has a saved .md, open that as a Note in the panel.
   -- Otherwise, open/focus project notes.
   ["litenotes:note"] = function()
-    local active = core.active_view
-    local doc    = active and active.doc
+  local active = core.active_view
 
-    if doc and doc.filename and doc.filename:lower():match("%.md$") then
-      open_markdown_doc(doc)
-    else
-      open_project_notes_view()
-    end
-  end,
+  -- If we're already in LiteNotes, don't try to be clever.
+  if is_litenotes_view(active) then
+    return  -- or open_project_notes_view() if you want that behaviour
+  end
 
-  -- litenotes:open-markdown-path - Prompt for a .md path and open it as a Note in the panel.
+  local doc = active and active.doc
+  if doc and doc.filename and doc.filename:lower():match("%.md$") then
+    open_markdown_doc(doc)
+  else
+    open_project_notes_view()
+  end
+end,
+
+  -- litenotes:note-path - Prompt for a .md path and open it as a Note in the panel.
   -- (Primarily for future context-menu / scripted use.)
   ["litenotes:note-path"] = function()
     core.command_view:enter("Open markdown path", {
@@ -546,3 +579,107 @@ command.add(nil, {
 -- MarkdownNoteView instances are never serialized and thus ephemeral.
 package.loaded["plugins.litenotes.view"] = ProjectNoteView
 
+----------------------------------------------------------------------
+-- NATIVE STATUS BAR INTEGRATION
+----------------------------------------------------------------------
+local StatusView = require "core.statusview"
+
+-- We attach directly to the global core.status_view instance
+if core.status_view then
+  core.status_view:add_item({
+    name = "litenotes:status",
+    alignment = StatusView.Item.LEFT, -- Uses the constant from the file you uploaded
+    position = 1,
+    
+    -- Check if we are in ANY LiteNotes view (Read or Edit)
+    predicate = function()
+      return core.active_view and core.active_view._is_litenotes
+    end,
+
+    get_item = function()
+      local view = core.active_view
+      local parts = {}
+
+      -- 1. Mode Indicator
+      if view:is(NoteEditView) then
+
+        table.insert(parts, style.accent)
+        table.insert(parts, "EDIT")
+        table.insert(parts, style.dim)
+        table.insert(parts, "  |")
+
+      else
+
+        table.insert(parts, style.text)
+        table.insert(parts, "READ")
+        table.insert(parts, style.dim)
+        table.insert(parts, "  |")
+
+      end
+
+
+      -- IMPORTANT: Must return a single table, not multiple values
+      return parts
+    end
+  })
+end
+
+
+
+
+
+--[[
+----------------------------------------------------------------------
+-- NATIVE STATUS BAR INTEGRATION
+----------------------------------------------------------------------
+local StatusView = require "core.statusview"
+
+-- We attach directly to the global core.status_view instance
+if core.status_view then
+  core.status_view:add_item({
+    name = "litenotes:status",
+    alignment = StatusView.Item.LEFT, -- Uses the constant from the file you uploaded
+    
+    -- Check if we are in ANY LiteNotes view (Read or Edit)
+    predicate = function()
+      return core.active_view and core.active_view._is_litenotes
+    end,
+
+    get_item = function()
+      local view = core.active_view
+      local parts = {}
+
+      -- 1. Mode Indicator
+      if view:is(NoteEditView) then
+        table.insert(parts, style.accent)
+        table.insert(parts, "EDIT")
+      else
+        table.insert(parts, style.text)
+        table.insert(parts, "READ")
+      end
+
+      -- 2. Filename
+      if view.doc then
+        table.insert(parts, style.dim) -- Separator style
+        table.insert(parts, " | ")
+        
+        table.insert(parts, style.text)
+        table.insert(parts, view.doc.filename)
+
+        -- 3. Line:Col (only in Edit Mode)
+        if view:is(NoteEditView) then
+          local line, col = view.doc:get_selection()
+          table.insert(parts, style.dim)
+          table.insert(parts, ":")
+          table.insert(parts, style.text)
+          table.insert(parts, string.format("%d:%d", line, col))
+        end
+      end
+
+      -- IMPORTANT: Must return a single table, not multiple values
+      return parts
+    end
+  })
+end
+
+]]
