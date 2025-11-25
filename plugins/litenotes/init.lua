@@ -1,411 +1,323 @@
 -- mod-version:3
 -- LiteNotes: Systems-style MD Renderer
--- Pipeline: mdparse (Block AST) -> mdlayout (Display List) -> NoteReadView:draw (Pixels)
+-- Flow: Init -> File Check -> View Swap -> Render Pipeline
 
-local core     = require "core"
-local command  = require "core.command"
-local common   = require "core.common"
-local style    = require "core.style"
-local system   = require "system"
+local core    = require "core"
+local command = require "core.command"
+local common  = require "core.common"
+local style   = require "core.style"
+local system  = require "system"
+local View    = require "core.view"
+local DocView = require "core.docview"
+local StatusView = require "core.statusview" 
 
-local View     = require "core.view"
-local DocView  = require "core.docview"
-local config   = require "plugins.litenotes.config"
-
-local parser   = require "plugins.litenotes.mdparse"
-local layout   = require "plugins.litenotes.mdlayout"
+local config  = require "plugins.litenotes.config"
+local parser  = require "plugins.litenotes.mdparse"
+local layout  = require "plugins.litenotes.mdlayout"
 
 -- 1. LOAD ASSETS
 layout.load_assets(config)
 
-local NoteReadView
-local ProjectNoteView
-local MarkdownNoteView
-local NoteEditView
+-- Forward declarations
+local NoteReadView, NoteEditView
+local enter_read_mode, enter_edit_mode
 
 ----------------------------------------------------------------------
--- PATHS / SETUP
+-- 2. FILE SYSTEM & PATHS
 ----------------------------------------------------------------------
 
 local NOTES_DIR = USERDIR .. PATHSEP .. "litenotes"
 
--- Ensures the LiteNotes root directory exists on disk.
--- Returns true if the directory is present or created successfully.
 local function ensure_notes_dir()
   local info = system.get_file_info(NOTES_DIR)
   if info and info.type == "dir" then return true end
+  
   local ok, err = system.mkdir(NOTES_DIR)
   if not ok then
-    core.error("LiteNotes: failed to create notes dir: %s", err)
+    core.error("LiteNotes: failed to create dir: %s", err)
     return false
   end
   return true
 end
 
--- Computes the file path for the current project's notes file.
--- Uses the absolute project root, sanitized into a stable filename.
 local function get_project_notes_path()
   local root = core.project_dir
   if not root or root == "" then return nil end
-  local abs_root = system.absolute_path(root)
-  local root_id = abs_root:gsub("[^%w%-_.]", "_")
-  return NOTES_DIR .. PATHSEP .. root_id .. ".md"
-end
-
--- Opens the current project's notes document, creating an empty file
--- on first use. Returns a Doc instance or nil on failure.
-local function open_or_create_notes_doc()
-  if not ensure_notes_dir() then return nil end
-  local notes_path = get_project_notes_path()
-  if not notes_path then return nil end
   
-  local info = system.get_file_info(notes_path)
-  if not info then
-    local fp = io.open(notes_path, "w")
-    if fp then fp:close() end
-  end
-  return core.open_doc(notes_path)
+  local abs = system.absolute_path(root)
+  local id  = abs:gsub("[^%w%-_.]", "_")
+  return NOTES_DIR .. PATHSEP .. id .. ".md"
 end
 
-----------------------------------------------------------------------
--- NAME HELPERS
-----------------------------------------------------------------------
+local function open_or_create_doc()
+  if not ensure_notes_dir() then return nil end
+  
+  local path = get_project_notes_path()
+  if not path then return nil end
+  
+  if not system.get_file_info(path) then
+    local fp = io.open(path, "w"); if fp then fp:close() end
+  end
+  
+  return core.open_doc(path)
+end
 
--- Builds a view title for notes, using either the project root name
--- or the backing markdown file name, prefixed with the given label.
-local function build_note_title(kind, prefix, doc)
+local function get_view_title(kind, prefix, doc)
   if kind == "markdown" then
-    local filename = doc and doc.filename
-    local base = filename and filename:match("([^/\\]+)$") or filename
-    return base and (prefix .. base) or prefix
+    local name = doc and doc.filename and common.basename(doc.filename) or "Untitled"
+    return prefix .. name
   else
-    local root = core.project_dir
-    local name = (root and root ~= "") and root:match("([^/\\]+)[/\\]?$") or root
-    return name and (prefix .. name) or prefix
+    local name = core.project_dir and common.basename(core.project_dir) or "Root"
+    return prefix .. name
   end
 end
 
 ----------------------------------------------------------------------
--- VIEW SWAP LOGIC
+-- 3. VIEW CONTROLLER
 ----------------------------------------------------------------------
 
--- Replaces one view instance with another in the same node, preserving
--- size and active state. Used to flip between read/edit modes in-place.
-local function replace_view(old_view, new_view)
-  local root_node = core.root_view and core.root_view.root_node
-  if not root_node then return end
-
-  local node = root_node:get_node_for_view(old_view)
+local function replace_view(old, new)
+  local node = core.root_view.root_node:get_node_for_view(old)
   if not node then return end
 
+  -- Manual swap required because node:replace_view() does not exist in Core.
   local views = node.views
-  local idx
   for i, v in ipairs(views) do
-    if v == old_view then idx = i; break end
+    if v == old then
+      new.node = node
+      new.size.x = old.size.x
+      new.size.y = old.size.y
+      views[i] = new
+      break
+    end
   end
-  if not idx then return end
-
-  new_view.size.x, new_view.size.y = old_view.size.x, old_view.size.y
-  new_view.node = node
-  views[idx] = new_view
-
-  if node.active_view == old_view then
-    node.active_view = new_view
-    core.set_active_view(new_view)
+  
+  if node.active_view == old then
+    node:set_active_view(new)
   end
 end
 
--- Switches from an edit view back into a read-only notes view.
--- Saves the document first, then constructs the appropriate reader.
-local function enter_read_mode(editor)
-  local doc = editor.doc
-  if not doc then return end
-  if doc:is_dirty() then doc:save() end
-
-  local kind = editor._litenotes_kind or "project"
-  local reader = (kind == "markdown") and MarkdownNoteView(doc) or ProjectNoteView(doc)
-  replace_view(editor, reader)
+function enter_read_mode(editor)
+  if editor.doc:is_dirty() then editor.doc:save() end
+  replace_view(editor, NoteReadView(editor.doc, editor._litenotes_kind))
 end
 
--- Switches from a read-only notes view into an editable DocView wrapper.
--- Reuses the same document and preserves the LiteNotes kind flag.
-local function enter_edit_mode(reader)
-  local doc = reader.doc
-  if not doc then return end
-  local editor = NoteEditView(doc, reader._litenotes_kind)
-  replace_view(reader, editor)
+function enter_edit_mode(reader)
+  replace_view(reader, NoteEditView(reader.doc, reader._litenotes_kind))
 end
 
 ----------------------------------------------------------------------
--- EDIT VIEW (Standard DocView)
+-- 4. VIEW CLASSES
 ----------------------------------------------------------------------
 
+-- [EDIT VIEW] Wrapper around standard DocView
 NoteEditView = DocView:extend()
 
--- [SYSTEMS FIX] Removed is(DocView) override. 
--- It caused Autocomplete crashes. We use custom Status Bar items instead.
-
--- Constructs an edit-mode view around a notes Doc.
--- Tracks focus transitions so it can auto-return to read mode.
 function NoteEditView:new(doc, kind)
   NoteEditView.super.new(self, doc)
-  self._litenotes_had_focus = false
   self._litenotes_kind = kind or "project"
   self._is_litenotes = true
+  self._had_focus = false
 end
 
--- Updates the edit view and watches focus. Once the user leaves this
--- view after having focused it, it automatically switches back to read.
+function NoteEditView:get_name()
+  return get_view_title(self._litenotes_kind, "Edit: ", self.doc)
+end
+
 function NoteEditView:update()
   NoteEditView.super.update(self)
-  local active = core.active_view
-  if active == self then
-    self._litenotes_had_focus = true
-  elseif self._litenotes_had_focus then
-    self._litenotes_had_focus = false
+  if core.active_view == self then
+    self._had_focus = true
+  elseif self._had_focus then
+    self._had_focus = false
     enter_read_mode(self)
   end
 end
 
--- Returns the label shown in the tab/status for the edit view,
--- prefixed with "Edit:" and based on project or file name.
-function NoteEditView:get_name()
-  return build_note_title(self._litenotes_kind or "project", "Edit:", self.doc)
-end
 
-----------------------------------------------------------------------
--- READ VIEW (The Renderer)
-----------------------------------------------------------------------
-
+-- [READ VIEW] Custom Renderer
 NoteReadView = View:extend()
 
--- [SYSTEMS FIX] Removed is(DocView) override.
-
--- Constructs a read-only notes view bound to a Doc.
--- Initializes layout cache and scroll state for the renderer.
 function NoteReadView:new(doc, kind)
   NoteReadView.super.new(self)
-  
-  -- [VACCINE] Fix corrupted session data on load
-  if not self.scroll.size then self.scroll.size = { x = 0, y = 0 } end
-
-  self.scrollable = true
-  self.context    = "session"
-  self._litenotes_kind = kind or "project"
   self.doc = doc
+  self._litenotes_kind = kind or "project"
   self._is_litenotes = true
+  self.scrollable = true
   
+  self.display_list = { list = {}, width = 0, height = 0 }
   self._layout_ver = 0
   self._layout_w   = 0
-  self.display_list = { list = {}, width = 0, height = 0 }
+  self._layout_bg  = nil -- For Theme Invalidation
 end
 
--- Returns the label shown in the tab/status for the read view,
--- prefixed with "Note:" and based on project or file name.
 function NoteReadView:get_name()
-  return build_note_title(self._litenotes_kind, "Note:", self.doc)
+  return get_view_title(self._litenotes_kind, "Note: ", self.doc)
 end
 
--- Handles mouse presses for the read view. A left double-click
--- switches the current notes view into edit mode in-place.
-function NoteReadView:on_mouse_pressed(button, x, y, clicks)
-  if NoteReadView.super.on_mouse_pressed(self, button, x, y, clicks) then return true end
-  if button == "left" and clicks >= 2 then
+-- Hook for LiteXL Core to determine vertical scroll limit
+function NoteReadView:get_scrollable_size()
+  return self.display_list.height
+end
+
+-- Hook for LiteXL Core to determine horizontal scroll limit
+function NoteReadView:get_h_scrollable_size()
+  return self.display_list.width
+end
+
+function NoteReadView:on_mouse_pressed(btn, x, y, clicks)
+  -- 1. Standard Event Bubble (Scrollbar, Double Click)
+  if NoteReadView.super.on_mouse_pressed(self, btn, x, y, clicks) then return true end
+  
+  -- Double click to edit (after super handles scrollbar click)
+  if btn == "left" and clicks == 2 then
     enter_edit_mode(self)
     return true
   end
   return false
 end
 
--- Ensures the markdown layout is up to date with the current document
--- contents and view width, updating the cached display list and scroll
--- size only when text or width changes.
 function NoteReadView:update_layout()
-  -- [VACCINE] Repair scrollbar if session restore broke it
-  if not self.scroll then self.scroll = { to = {x=0,y=0} } end
-  if not self.scroll.size then self.scroll.size = { x = 0, y = 0 } end
-
-  local doc_ver = self.doc:get_change_id()
-  local width   = self.size.x
+  local ver = self.doc:get_change_id()
   
-  -- Optimization: Only re-compute if content or window width changed
-  if self._layout_ver == doc_ver and self._layout_w == width then
-    return
+  -- Explicitly reserve space for the scrollbar gutter
+  local gutter = style.scrollbar_size or 0
+  local w = self.size.x - gutter
+  
+  -- Theme Invalidation Check
+  local theme_changed = (self._layout_bg ~= style.background2)
+  if self._layout_ver == ver and self._layout_w == w and not theme_changed then return end
+
+  if theme_changed then
+    layout.load_assets(config)
+    self._layout_bg = style.background2
   end
   
-  -- 1. PARSE (Raw Text -> Blocks)
-  local raw_text = self.doc:get_text(1, 1, #self.doc.lines, #self.doc.lines[#self.doc.lines])
-  local blocks = parser.parse_blocks(raw_text)
+  local text = self.doc:get_text(1, 1, #self.doc.lines, #self.doc.lines[#self.doc.lines])
+  local blocks = parser.parse_blocks(text)
   
-  -- 2. COMPUTE (Blocks -> Display List)
-  self.display_list = layout.compute(blocks, width)
+  -- Pass the reduced width to the layout engine
+  self.display_list = layout.compute(blocks, w)
   
-  -- 3. UPDATE SCROLLBARS (Now safe because we checked self.scroll.size above)
-  self.scroll.size.y = self.display_list.height
-  self.scroll.size.x = self.display_list.width
-  
-  -- 4. UPDATE CACHE TRACKERS
-  self._layout_ver = doc_ver
-  self._layout_w   = width
+  self._layout_ver = ver
+  self._layout_w   = w
 end
 
--- Draws the notes view: clears the background, applies clipping,
--- walks the display list to render text/rect commands, then draws
--- the scrollbars.
 function NoteReadView:draw()
-  -- [COLOR] Use Panel Background
   self:draw_background(style.background2)
-  
   self:update_layout()
   
+  -- Empty State Hint
+  if #self.display_list.list == 0 then
+    local text = "Double-click to edit"
+    local font = style.font
+    local tw = font:get_width(text)
+    local th = font:get_height()
+    
+    local x = math.floor(self.position.x + (self.size.x - tw) / 2)
+    local y = math.floor(self.position.y + (self.size.y - th) / 2)
+    
+    renderer.draw_text(font, text, x, y, style.dim)
+  end
+
+  -- Render Content
   local ox, oy = self:get_content_offset()
   local cmds = self.display_list.list
   local TYPE = layout.DRAW_MODE
-  local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
   
-  core.push_clip_rect(x, y, w, h)
-
+  core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
+  
+  -- Culling logic with safety buffer
+  local min_y, max_y = -oy, -oy + self.size.y
   for i = 1, #cmds do
     local cmd = cmds[i]
-    -- Simple Culling
-    if (oy + cmd.y + 100 > 0) and (oy + cmd.y < h) then
-        if cmd.type == TYPE.TEXT then
-          renderer.draw_text(cmd.font, cmd.text, ox + cmd.x, oy + cmd.y, cmd.color)
-        elseif cmd.type == TYPE.RECT then
-          renderer.draw_rect(ox + cmd.x, oy + cmd.y, cmd.w, cmd.h, cmd.color)
-        end
+    if (cmd.y + 100 > min_y) and (cmd.y < max_y + 100) then
+      if cmd.type == TYPE.TEXT then
+        renderer.draw_text(cmd.font, cmd.text, ox + cmd.x, oy + cmd.y, cmd.color)
+      elseif cmd.type == TYPE.RECT then
+        renderer.draw_rect(ox + cmd.x, oy + cmd.y, cmd.w, cmd.h, cmd.color)
+      end
     end
   end
   
   core.pop_clip_rect()
+
+  -- Draw Scrollbar last to overlay content
   self:draw_scrollbar()
 end
 
 ----------------------------------------------------------------------
--- PERSISTENCE WRAPPERS
+-- 5. WIRING & COMMANDS
 ----------------------------------------------------------------------
 
-ProjectNoteView = NoteReadView:extend()
+local function is_litenotes(v) return v and v._is_litenotes end
 
--- Creates a read-only view for the current project's notes document,
--- opening or creating the underlying Doc if needed.
-function ProjectNoteView:new(doc)
-  if not doc then doc = open_or_create_notes_doc() end
-  ProjectNoteView.super.new(self, doc, "project")
-end
-
-MarkdownNoteView = NoteReadView:extend()
-
--- Creates a read-only view for an arbitrary markdown Doc, treating
--- it as a LiteNotes-rendered markdown page.
-function MarkdownNoteView:new(doc)
-  MarkdownNoteView.super.new(self, doc, "markdown")
-end
-
-----------------------------------------------------------------------
--- COMMANDS
-----------------------------------------------------------------------
-
--- Returns true if the given view is one of the LiteNotes views.
-local function is_litenotes_view(v) return v and v._is_litenotes end
-
--- Walks all views in the root view tree, calling the visitor for each
--- LiteNotes view. Traversal stops early if the visitor returns true.
-local function walk_litenotes_views(visitor)
-  local root_node = core.root_view and core.root_view.root_node
-  if not root_node then return end
-  local function visit(node)
-    if not node then return false end
-    if node.type == "leaf" then
-      for _, v in ipairs(node.views) do
-        if is_litenotes_view(v) and visitor(v, node) then return true end
-      end
-      return false
+local function walk_views(visitor)
+  local node = core.root_view.root_node
+  local function rec(n)
+    if n.type == "leaf" then
+      for _, v in ipairs(n.views) do if visitor(v) then return true end end
+    elseif n.a then
+      if rec(n.a) then return true end
+      if rec(n.b) then return true end
     end
-    return visit(node.a) or visit(node.b)
+    return false
   end
-  visit(root_node)
+  rec(node)
 end
 
--- Finds the node currently hosting a LiteNotes panel (if any)
--- and returns that node. Nil if no LiteNotes view is present.
-local function find_notes_panel_node()
-  local result = nil
-  walk_litenotes_views(function(_, node) result = node; return true end)
-  return result
-end
+local function open_in_panel(view)
+  local panel_node
+  walk_views(function(v) 
+    if is_litenotes(v) then 
+      panel_node = core.root_view.root_node:get_node_for_view(v)
+      return true 
+    end 
+  end)
 
--- Opens the given view in the dedicated notes panel. If a notes panel
--- already exists, the view is added there; otherwise a new split is
--- created in the configured dock direction.
-local function open_in_notes_panel(view)
-  local root_node = core.root_view.root_node
-  local panel_node = find_notes_panel_node()
-  
   if panel_node then
     panel_node:add_view(view)
     core.set_active_view(view)
-    return
+  else
+    local active = core.root_view:get_active_node()
+    active:split(config.dock_mode or "right", view)
+    core.set_active_view(view)
   end
-  
-  local active = core.root_view:get_active_node()
-  local dir = config.dock_mode or "right"
-  active:split(dir, view)
-  core.set_active_view(view)
-end
-
--- Opens the project-scoped notes view in the notes panel, reusing an
--- existing view when singleton mode is enabled.
-local function open_project_notes_view()
-  local doc = open_or_create_notes_doc()
-  if not doc then return end
-  
-  if config.singleton_notes then
-    local existing
-    walk_litenotes_views(function(v) 
-      if v.doc == doc then existing = v; return true end 
-    end)
-    if existing then core.set_active_view(existing); return end
-  end
-
-  open_in_notes_panel(ProjectNoteView(doc))
-end
-
--- Opens an arbitrary markdown Doc inside the LiteNotes renderer,
--- placing it into the notes panel.
-local function open_markdown_doc(doc)
-  open_in_notes_panel(MarkdownNoteView(doc))
 end
 
 command.add(nil, {
-  ["litenotes:devnotes"] = function() open_project_notes_view() end,
+  ["litenotes:devnotes"] = function()
+    local doc = open_or_create_doc()
+    if not doc then return end
+
+    if config.singleton_notes then
+      local found = false
+      walk_views(function(v)
+        if v.doc == doc and is_litenotes(v) then
+          core.set_active_view(v)
+          found = true
+          return true
+        end
+      end)
+      if found then return end
+    end
+
+    open_in_panel(NoteReadView(doc, "project"))
+  end,
   
   ["litenotes:note"] = function()
     local active = core.active_view
-    local doc = active and active.doc
-    if doc and doc.filename and doc.filename:lower():match("%.md$") then
-      open_markdown_doc(doc)
+    if active.doc and active.doc.filename:match("%.md$") then
+      open_in_panel(NoteReadView(active.doc, "markdown"))
     else
-      open_project_notes_view()
+      command.perform("litenotes:devnotes")
     end
-  end,
-  
-  ["litenotes:note-path"] = function()
-    core.command_view:enter("Open markdown path", {
-      submit = function(text)
-        local doc = core.open_doc(text)
-        open_markdown_doc(doc)
-      end,
-      text = core.project_dir or "",
-      select_text = true
-    })
   end
 })
 
 ----------------------------------------------------------------------
--- STATUS BAR INTEGRATION
+-- 6. STATUS BAR
 ----------------------------------------------------------------------
-local StatusView = require "core.statusview"
 
 if core.status_view then
   -- Left side: mode + path
@@ -457,10 +369,3 @@ if core.status_view then
     end
   })
 end
-
-
-----------------------------------------------------------------------
--- WORKSPACE RESTORE
-----------------------------------------------------------------------
-package.loaded["plugins.litenotes.view"] = ProjectNoteView
-

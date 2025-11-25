@@ -1,67 +1,245 @@
-local parser = require("mdparse")
+-- -------------------------------------------------------------------------
+-- DATA SCHEMA (SINGLE SOURCE OF TRUTH)
+-- -------------------------------------------------------------------------
+
+local TOKENS = {
+  BLOCK = {
+    HEADER    = 1,
+    PARAGRAPH = 2,
+    CODE      = 3,
+    LIST      = 4,
+    RULE      = 5
+  },
+  SPAN = {
+    NONE   = 0,
+    BOLD   = 1,
+    ITALIC = 2,
+    CODE   = 4 
+  }
+}
 
 -- -------------------------------------------------------------------------
--- DEBUG HELPER (Recursive Dump)
+-- INTERNAL HELPERS
 -- -------------------------------------------------------------------------
-local function dump(node, indent)
-  indent = indent or ""
-  if type(node) == "table" then
-    local s = indent .. "{\n"
-    for k, v in pairs(node) do
-      local key = type(k) == "number" and ("["..k.."]") or k
-      local val
-      if type(v) == "table" then
-        val = "\n" .. dump(v, indent .. "  ")
-      elseif type(v) == "string" then
-        val = '"' .. v:gsub("\n", "\\n") .. '"'
-      else
-        val = tostring(v)
-      end
-      s = s .. indent .. "  " .. key .. " = " .. val .. ",\n"
-    end
-    return s .. indent .. "}"
+
+local str_match = string.match
+local str_sub   = string.sub
+local str_find  = string.find
+local t_insert  = table.insert
+local t_remove  = table.remove
+
+-- -------------------------------------------------------------------------
+-- PHASE 1: BLOCK HANDLERS
+-- -------------------------------------------------------------------------
+
+local function handle_fence_open(state, line, c1, c2, c3)
+  state.in_code = true
+  t_insert(state.blocks, { type = TOKENS.BLOCK.CODE, lines = {}, arg = nil })
+  return true
+end
+
+local function handle_header(state, line, hashes, content, c3)
+  t_insert(state.blocks, { type = TOKENS.BLOCK.HEADER, text = content, arg = #hashes })
+  return true
+end
+
+local function handle_list_ordered(state, line, spaces, number, content)
+  t_insert(state.blocks, { 
+    type       = TOKENS.BLOCK.LIST, 
+    text       = content,
+    is_ordered = true,
+    number     = tonumber(number),
+    level      = math.floor(#spaces / 2),
+  })
+  return true
+end
+
+local function handle_list_unordered(state, line, spaces, content)
+  -- Stable version: Checkbox logic removed, treating [ ] as part of text
+  t_insert(state.blocks, { 
+    type       = TOKENS.BLOCK.LIST, 
+    text       = content,
+    is_ordered = false,
+    number     = nil,
+    level      = math.floor(#spaces / 2),
+  })
+  return true
+end
+
+local function handle_rule(state, line, c1, c2, c3)
+  t_insert(state.blocks, { type = TOKENS.BLOCK.RULE })
+  return true
+end
+
+local function handle_blank(state, line, c1, c2, c3)
+  state.last_was_blank = true
+  return true
+end
+
+local function handle_paragraph(state, line, c1, c2, c3)
+  local last = state.blocks[#state.blocks]
+  if last and last.type == TOKENS.BLOCK.PARAGRAPH and not state.last_was_blank then
+    last.text = last.text .. "\n" .. line
   else
-    return tostring(node)
+    t_insert(state.blocks, { type = TOKENS.BLOCK.PARAGRAPH, text = line })
   end
+  return true
 end
 
 -- -------------------------------------------------------------------------
--- TEST DATA (The Spec)
--- Constructed via table to avoid Chat UI formatting errors
--- -------------------------------------------------------------------------
-local input = table.concat({
-  "# System Check",
-  "This is a paragraph",
-  "that should merge lines.",
-  "",
-  "- List Item A",
-  "- List Item B",
-  "",
-  "```lua",          -- Start Code Fence
-  "local x = 10",
-  "```",             -- End Code Fence
-  "",
-  "Final text with **bold** and `code` styles."
-}, "\n")
-
--- -------------------------------------------------------------------------
--- RUN PIPELINE
+-- PHASE 1 RULES (Block Priority)
 -- -------------------------------------------------------------------------
 
-print("================ BLOCK PASS ================")
-local blocks = parser.parse_blocks(input)
-print(dump(blocks))
+local block_rules = {
+  { "^```",                             handle_fence_open     },
+  { "^(#+)%s+(.*)",                     handle_header         },
+  { "^(%s*)(%d+)%.%s+(.*)",             handle_list_ordered   },
+  { "^(%s*)%-%s+(.*)",                  handle_list_unordered },
+  { "^%-%-%-+$",                        handle_rule           },
+  { "^%s*$",                            handle_blank          },
+}
 
-print("\n================ SPAN PASS =================")
--- Find the last paragraph (the one with bold/code) to test tokenizer
-local target_text = ""
-for i = #blocks, 1, -1 do
-  if blocks[i].type == parser.TOKENS.BLOCK.PARAGRAPH then
-    target_text = blocks[i].text
-    break
+-- -------------------------------------------------------------------------
+-- PHASE 2 RULES (Span Priority)
+-- -------------------------------------------------------------------------
+
+local span_rules = {
+  { type = TOKENS.SPAN.CODE,   pattern = "(`+)(.-)%1",      content_idx = 2 },
+  { type = TOKENS.SPAN.BOLD,   pattern = "%*%*(.-)%*%*",    content_idx = 1 },
+  { type = TOKENS.SPAN.ITALIC, pattern = "%*([^%s].-)%*",   content_idx = 1 }
+}
+
+-- -------------------------------------------------------------------------
+-- PARSER ENGINE
+-- -------------------------------------------------------------------------
+
+local function parse_blocks(raw_text)
+  local blocks = {}
+  local state = {
+    blocks         = blocks,
+    in_code        = false,
+    last_was_blank = false,
+  }
+
+  raw_text = raw_text:gsub("\t", "    ")
+
+  for line in raw_text:gmatch("([^\r\n]*)\r?\n?") do
+    if state.in_code then
+      if str_match(line, "^```") then
+        state.in_code = false
+      else
+        local code_blk = blocks[#blocks]
+        if code_blk then t_insert(code_blk.lines, line) end
+      end
+    else
+      local matched = false
+      for _, rule in ipairs(block_rules) do
+        local c1, c2, c3 = str_match(line, rule[1])
+        if c1 or str_match(line, rule[1]) then
+          rule[2](state, line, c1, c2, c3)
+          matched = true
+          break
+        end
+      end
+      if not matched then 
+        handle_paragraph(state, line)
+      end
+      if matched and not state.last_was_blank_pending then 
+        state.last_was_blank = false 
+      end
+    end
   end
+
+  return blocks
 end
 
-print("INPUT: " .. target_text)
-local tokens = parser.parse_spans(target_text)
-print(dump(tokens))
+local function scan_next(text, rule, pos)
+  local s, e, c1, c2 = str_find(text, rule.pattern, pos)
+  if not s then return nil end
+  
+  local content
+  if rule.content_idx == 1 then content = c1
+  elseif rule.content_idx == 2 then content = c2
+  end
+  
+  return { s = s, e = e, text = content, type = rule.type, rule = rule }
+end
+
+local function parse_spans(text)
+  local tokens = {}
+  local pos = 1
+  local len = #text
+
+  -- 1. Initialize Lookahead Cache
+  local next_matches = {}
+  for _, rule in ipairs(span_rules) do
+    local match = scan_next(text, rule, pos)
+    if match then 
+      t_insert(next_matches, match)
+    end
+  end
+
+  while pos <= len do
+    
+    -- Clean up Stale Matches logic
+    local i = 1
+    while i <= #next_matches do
+      local match = next_matches[i]
+      if match.s < pos then
+        local next_one = scan_next(text, match.rule, pos)
+        if next_one then
+          next_matches[i] = next_one
+          i = i + 1
+        else
+          t_remove(next_matches, i)
+        end
+      else
+        i = i + 1
+      end
+    end
+
+    -- 2. Find the Winner (Nearest Match)
+    local best_idx = nil
+    local best_match = nil
+
+    for idx, match in ipairs(next_matches) do
+      if not best_match or match.s < best_match.s then
+        best_match = match
+        best_idx = idx
+      elseif match.s == best_match.s and idx < best_idx then
+         best_match = match
+         best_idx = idx
+      end
+    end
+
+    if not best_match then
+      t_insert(tokens, { style = TOKENS.SPAN.NONE, text = str_sub(text, pos) })
+      break
+    else
+      -- 3. Emit Pre-Token Text
+      if best_match.s > pos then
+        t_insert(tokens, { style = TOKENS.SPAN.NONE, text = str_sub(text, pos, best_match.s - 1) })
+      end
+
+      -- 4. Emit Token (Uses 'style' key)
+      t_insert(tokens, { style = best_match.type, text = best_match.text })
+      pos = best_match.e + 1
+
+      -- 5. Refresh Cache for the Winner
+      local new_match = scan_next(text, best_match.rule, pos)
+      if new_match then
+        next_matches[best_idx] = new_match
+      else
+        t_remove(next_matches, best_idx)
+      end
+    end
+  end
+
+  return tokens
+end
+
+return {
+  TOKENS       = TOKENS,
+  parse_blocks = parse_blocks,
+  parse_spans  = parse_spans,
+}

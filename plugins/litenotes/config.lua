@@ -12,6 +12,6 @@ return {
     italic  = plugin_dir .. "/fonts/JetBrainsMono-MediumItalic.ttf",
     -- [NEW] Required for Code Blocks / Inline Code
     code    = plugin_dir .. "/fonts/JetBrainsMono-Regular.ttf", 
-    size    = 15,
+    size    = 16,
   },
 }
