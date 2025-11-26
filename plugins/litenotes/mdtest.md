@@ -1,74 +1,220 @@
-# h1 Heading 8-)
-## h2 Heading
-### h3 Heading
-#### h4 Heading
-##### h5 Heading
-###### h6 Heading
-normal text
+# **LiteNotes** *Demo* ~~Example~~
 
-# **Bold Heading**
-# *Italic Heading*
+**LiteNotes** is a native Markdown viewer plugin for LiteXL. It renders `markdown` files directly in the editor using a custom Lua layout engine.
 
-## Horizontal Rules
+## `Usage` Guide
 
+This document demonstrates the current rendering capabilities. You can view your notes in **Read Mode** or switch to standard editing.
 
+- **Workflow**:
+  - `Read Mode`: Clean layout for viewing notes.
+  - `Edit Mode`: Standard LiteXL document editor.
+  - *Double-click* anywhere to toggle modes.
+- **Syntax Support**:
+  1. **Headers**: Various sizes are supported.
+  2. **Text**: Standard styles like **bold** and *italic*.
+  3. **Lists**: Supports ordered and unordered nesting.
+
+# to do list
+  1. remember
+  - [ ] get eggs
+  - [x] get milks
+  - **FOR DOG:**
+    - [ ] ~~Crunchies~~
+    - [x] Kibble
+    - [ ] 
 
 ---
 
+### Code Styling
 
+Code blocks are supported with dedicated background rendering (`style.line_highlight`) and monospaced fonts.
 
-
-
-## Emphasis
-
-**This is bold text**
-*This is italic text*
-
-## Lists
-
-Unordered
-
-- Create a list by starting a line with `-`
-- No sublists!
-- Very easy!
-
-- Ordered (not implemented
-
-1. Lorem ipsum `dolor sit amet`
-
-2. Consectetur adipiscing elit
-
-3. `Integer molestie lorem at massa`
-
-## Code
-
-Inline `code`
-Block code "fences"
-
-
-``` js
-var foo = function (bar) {
-  return bar++;
-};
-
-console.log(foo(5));
+```lua
+local function foo(bar)
+  -- Check for indentation handling
+  if bar then
+    print("Hello World")
+    return true
+  end
+  
+  return false
+end
 ```
 
+# LiteNotes Syntax Highlight Test
 
-# 🜛 Voke DSP
+This file tests the rendering of code fences with various language identifiers.
 
-A signal-expression **DSP** framework for real-time synthesis and sound design.
+## Core Languages
 
-## 🧠 What is Voke DSP?
+### Lua
+```lua
+local function hello(name)
+  print("Hello, " .. name)
+  return true
+end
+````
 
-***Voke DSP*** explores how core synthesis concepts — oscillators, filters, modulation, and signal flow — can be expressed directly in code.  
-It treats synthesis as a series of clear, composable transformations over time, written in a straightforward, procedural style.
+### C
 
-Every sound is built from explicit signal relationships and deterministic state updates.  
-The goal is to make code feel like patch cables.
+```c
+#include <stdio.h>
 
-## 🎚 *Highlights*
-- Deterministic, data-oriented DSP core  
-- Explicit signal flow — code *is* the patch  
-- Composable *Source & Processor Units* for oscillators, filters, envelopes and modulation  
-- Designed for expressive live coding
+int main() {
+    printf("Hello World\n");
+    return 0;
+}
+```
+
+### C++
+
+```cpp
+#include <iostream>
+using namespace std;
+
+class Box {
+   public:
+      double length;   // Length of a box
+};
+```
+
+### Python
+
+```python
+def fib(n):
+    """Print a Fibonacci series up to n."""
+    a, b = 0, 1
+    while a < n:
+        print(a, end=' ')
+        a, b = b, a+b
+```
+
+## Web Stack
+
+### JavaScript
+
+```javascript
+const element = document.getElementById("demo");
+element.innerHTML = "Hello JavaScript!";
+// Complex regex test
+const re = /ab+c/;
+```
+
+### JSON
+
+```json
+{
+  "name": "LiteNotes",
+  "version": 1.0,
+  "features": ["syntax", "rendering"]
+}
+```
+
+### HTML
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>My First Heading</h1>
+    <p>My first paragraph.</p>
+</body>
+</html>
+```
+
+### CSS
+
+```css
+body {
+  background-color: lightblue;
+}
+h1 {
+  color: white;
+  text-align: center;
+}
+```
+
+## Systems / Modern
+
+### Rust
+
+```rust
+fn main() {
+    let x = 5;
+    let y = 10;
+    println!("x + y = {}", x + y);
+}
+```
+
+### Go
+
+```go
+package main
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+```
+
+### Odin
+
+```odin
+package main
+import "core:fmt"
+
+main :: proc() {
+    fmt.println("Hellope World");
+}
+```
+
+### Bash / Shell
+
+```bash
+#!/bin/bash
+echo "Deploying updates..."
+# Loop through files
+for f in *.txt; do
+    echo "Processing $f"
+done
+```
+
+## Edge Cases
+
+### Ruby
+
+```ruby
+class Greeter
+  def initialize(name = "World")
+    @name = name
+  end
+  def say_hi
+    puts "Hi #{@name}!"
+  end
+end
+```
+
+### Markdown (Recursive)
+
+```markdown
+# Header
+* List item
+* [Link](http://google.com)
+```
+
+### No Language (Should be monochrome)
+
+```
+This block has no language tag.
+It should render using the default code color.
+```
+
+### Unknown Language (Should fallback gracefully)
+
+```brainfuck
+++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++++..+++.>++.
+```
+
+```
+```

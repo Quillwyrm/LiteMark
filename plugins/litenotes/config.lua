@@ -10,7 +10,6 @@ return {
     regular = plugin_dir .. "/fonts/JetBrainsMono-Medium.ttf",
     bold    = plugin_dir .. "/fonts/JetBrainsMono-Bold.ttf",
     italic  = plugin_dir .. "/fonts/JetBrainsMono-MediumItalic.ttf",
-    -- [NEW] Required for Code Blocks / Inline Code
     code    = plugin_dir .. "/fonts/JetBrainsMono-Regular.ttf", 
     size    = 16,
   },

@@ -233,9 +233,15 @@ function NoteReadView:draw()
   local min_y, max_y = -oy, -oy + self.size.y
   for i = 1, #cmds do
     local cmd = cmds[i]
+
+    -- OPTIMIZATION: Stop processing if we are below the view
+    if cmd.y > max_y + 100 then break end
+    
     if (cmd.y + 100 > min_y) and (cmd.y < max_y + 100) then
+      
       if cmd.type == TYPE.TEXT then
         renderer.draw_text(cmd.font, cmd.text, ox + cmd.x, oy + cmd.y, cmd.color)
+        
       elseif cmd.type == TYPE.RECT then
         renderer.draw_rect(ox + cmd.x, oy + cmd.y, cmd.w, cmd.h, cmd.color)
       end

@@ -106,7 +106,7 @@ end
 
 local function ensure_block_tokens(block)
   -- If we already have tokens or there is no language, do nothing
-  if block.tokens or not block.lang then return end
+  if not block.lang then return end
   
   local syn = resolve_syntax(block.lang)
   if not syn then return end
