@@ -1,5 +1,5 @@
 -- mod-version:3
--- LiteNotes: Systems-style MD Renderer
+-- LiteMark: Systems-style MD Renderer
 -- Flow: Init -> File Check -> View Swap -> Render Pipeline
 
 local core    = require "core"
@@ -12,9 +12,9 @@ local DocView = require "core.docview"
 local StatusView = require "core.statusview" 
 
 
-local config  = require "plugins.litenotes.config"
-local parser  = require "plugins.litenotes.mdparse"
-local layout  = require "plugins.litenotes.mdlayout"
+local config  = require "plugins.litemark.config"
+local parser  = require "plugins.litemark.mdparse"
+local layout  = require "plugins.litemark.mdlayout"
 
 -- 1. LOAD ASSETS
 layout.load_assets(config)
@@ -36,7 +36,7 @@ local function ensure_notes_dir()
   
   local ok, err = system.mkdir(NOTES_DIR)
   if not ok then
-    core.error("LiteNotes: failed to create dir: %s", err)
+    core.error("LiteMark: failed to create dir: %s", err)
     return false
   end
   return true
@@ -102,12 +102,12 @@ end
 function enter_read_mode(editor)
   if editor.doc:is_dirty() then editor.doc:save() end
   -- Scroll logic removed
-  replace_view(editor, NoteReadView(editor.doc, editor._litenotes_kind))
+  replace_view(editor, NoteReadView(editor.doc, editor._litemark_kind))
 end
 
 function enter_edit_mode(reader)
   -- Scroll logic removed
-  replace_view(reader, NoteEditView(reader.doc, reader._litenotes_kind))
+  replace_view(reader, NoteEditView(reader.doc, reader._litemark_kind))
 end
 
 ----------------------------------------------------------------------
@@ -119,13 +119,13 @@ NoteEditView = DocView:extend()
 
 function NoteEditView:new(doc, kind)
   NoteEditView.super.new(self, doc)
-  self._litenotes_kind = kind or "project"
-  self._is_litenotes = true
+  self._litemark_kind = kind or "project"
+  self._is_litemark = true
   self._had_focus = false
 end
 
 function NoteEditView:get_name()
-  return get_view_title(self._litenotes_kind, "Edit:", self.doc)
+  return get_view_title(self._litemark_kind, "Edit:", self.doc)
 end
 
 function NoteEditView:update()
@@ -145,8 +145,8 @@ NoteReadView = View:extend()
 function NoteReadView:new(doc, kind)
   NoteReadView.super.new(self)
   self.doc = doc
-  self._litenotes_kind = kind or "project"
-  self._is_litenotes = true
+  self._litemark_kind = kind or "project"
+  self._is_litemark = true
   self.scrollable = true
   
   self.display_list = { list = {}, width = 0, height = 0 }
@@ -156,7 +156,7 @@ function NoteReadView:new(doc, kind)
 end
 
 function NoteReadView:get_name()
-  return get_view_title(self._litenotes_kind, "Note:", self.doc)
+  return get_view_title(self._litemark_kind, "Note:", self.doc)
 end
 
 -- Hook for LiteXL Core to determine vertical scroll limit
@@ -272,7 +272,7 @@ end
 -- 5. WIRING
 ----------------------------------------------------------------------
 
-local function is_litenotes(v) return v and v._is_litenotes end
+local function is_litemark(v) return v and v._is_litemark end
 
 local function walk_views(visitor)
   local node = core.root_view.root_node
@@ -291,7 +291,7 @@ end
 local function open_in_panel(view)
   local panel_node
   walk_views(function(v) 
-    if is_litenotes(v) then 
+    if is_litemark(v) then 
       panel_node = core.root_view.root_node:get_node_for_view(v)
       return true 
     end 
@@ -312,14 +312,14 @@ end
 ----------------------------------------------------------------------
 
 command.add(nil, {
-  ["litenotes:view project notes"] = function()
+  ["litemark:view project notes"] = function()
     local doc = open_or_create_doc()
     if not doc then return end
 
     if config.singleton_notes then
       local found = false
       walk_views(function(v)
-        if v.doc == doc and is_litenotes(v) then
+        if v.doc == doc and is_litemark(v) then
           core.set_active_view(v)
           found = true
           return true
@@ -331,18 +331,18 @@ command.add(nil, {
     open_in_panel(NoteReadView(doc, "project"))
   end,
   
-  ["litenotes:open note"] = function()
+  ["litemark:open note"] = function()
     local active = core.active_view
     if active.doc and active.doc.filename:match("%.md$") then
       open_in_panel(NoteReadView(active.doc, "markdown"))
     else
-      command.perform("litenotes:view project notes")
+      command.perform("litemark:view project notes")
     end
   end,
 
   -- Context menu entry for .md DocViews: reuse existing behavior.
-  ["litenotes:note"] = function()
-    command.perform("litenotes:open note")
+  ["litemark:note"] = function()
+    command.perform("litemark:open note")
   end,
 
 })
@@ -354,12 +354,12 @@ command.add(nil, {
 if core.status_view then
   -- Left side: mode + path
   core.status_view:add_item({
-    name = "litenotes:status",
+    name = "litemark:status",
     alignment = StatusView.Item.LEFT,
     position = 1,
     
     predicate = function()
-      return core.active_view and core.active_view._is_litenotes
+      return core.active_view and core.active_view._is_litemark
     end,
 
     get_item = function()
@@ -386,17 +386,17 @@ if core.status_view then
 
   -- Right side: plugin label
   core.status_view:add_item({
-    name = "litenotes:label",
+    name = "litemark:label",
     alignment = StatusView.Item.RIGHT,
     position = 1,
 
     predicate = function()
-      return core.active_view and core.active_view._is_litenotes
+      return core.active_view and core.active_view._is_litemark
     end,
 
     get_item = function()
       return {
-        style.dim, style.font, "LiteNotes - Alpha : Goblin Jelly",
+        style.dim, style.font, "LiteMark - Alpha : Goblin Jelly",
       }
     end
   })
@@ -418,5 +418,5 @@ contextmenu:register(function()
     and view.doc.filename
     and view.doc.filename:match("%.md$")
 end, {
-  { text = "Notes View", command = "litenotes:open note" }
+  { text = "Notes View", command = "litemark:open note" }
 })

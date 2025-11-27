@@ -1,8 +1,8 @@
 local core    = require "core"
 local common  = require "core.common"
 local style   = require "core.style"
-local parser  = require "plugins.litenotes.mdparse"
-local config  = require "plugins.litenotes.config"
+local parser  = require "plugins.litemark.mdparse"
+local config  = require "plugins.litemark.config"
 
 -- SYNTAX HIGHLIGHTING DEPENDENCIES
 local tokenizer = require "core.tokenizer"
