@@ -10,6 +10,7 @@ local TOKENS = {
     LIST      = 4,
     RULE      = 5
   },
+  
   SPAN = {
     NONE   = 0,
     BOLD   = 1,
@@ -94,20 +95,35 @@ local function handle_rule(state, line, c1, c2, c3, line_idx)
   return true
 end
 
-local function handle_blank(state, line, c1, c2, c3, line_idx)
+local function handle_blank(state, line, _, _, _, line_idx)
+  -- Blank line: end of any "paragraph run".
+  -- Paragraph handler will see last_was_blank == true and start a new block.
   state.last_was_blank = true
-  return true
+  -- If you want to auto-close code blocks on blank lines, do it here:
+  -- state.in_code = false
 end
 
-local function handle_paragraph(state, line, c1, c2, c3, line_idx)
-  local last = state.blocks[#state.blocks]
+
+local function handle_paragraph(state, line, _, _, _, line_idx)
+  local blocks = state.blocks
+  local last   = blocks[#blocks]
+
   if last and last.type == TOKENS.BLOCK.PARAGRAPH and not state.last_was_blank then
-    last.text = last.text .. "\n" .. line
+    -- Same paragraph run: append with a space
+    last.text = last.text .. " " .. line
   else
-    t_insert(state.blocks, { type = TOKENS.BLOCK.PARAGRAPH, text = line })
+    -- Either first paragraph, or there was a blank line: start a new paragraph
+    table.insert(blocks, {
+      type = TOKENS.BLOCK.PARAGRAPH,
+      text = line,
+      line = line_idx,
+    })
   end
-  return true
+  
+  -- We've just seen a non-blank text line
+  state.last_was_blank = false
 end
+
 
 -- -------------------------------------------------------------------------
 -- PHASE 1 RULES (Block Priority)
@@ -117,7 +133,6 @@ local block_rules = {
   { "^```%s*(%S*)",                    handle_fence_open     },
   { "^(#+)%s+(.*)",                     handle_header         },
   { "^(%s*)(%d+)%.%s+(.*)",             handle_list_ordered   },
-  -- CHANGED: Added [%-%*%+] to capture -, *, or +
   { "^(%s*)([%-%*%+])%s+(.*)",          handle_list_unordered },
   { "^%-%-%-+$",                        handle_rule           },
   { "^%s*$",                            handle_blank          },
@@ -142,48 +157,70 @@ local span_rules = {
 -- PARSER ENGINE
 -- -------------------------------------------------------------------------
 
+-- parse_blocks(raw_text)
+-- Parse Markdown source into a flat list of block records.
 local function parse_blocks(raw_text)
   local blocks = {}
   local state = {
     blocks         = blocks,
-    in_code        = false,
-    last_was_blank = false,
+    in_code        = false, -- true while inside ``` fenced blocks
+    last_was_blank = false, -- true if the previous *non-code* line was blank
   }
 
+  -- Normalize tabs: treat them as 4 spaces for indentation / list levels.
   raw_text = raw_text:gsub("\t", "    ")
-  local line_idx = 0 
+  local line_idx = 0
 
+  -- Iterate over all lines, including a final empty line if present.
   for line in raw_text:gmatch("([^\r\n]*)\r?\n?") do
     line_idx = line_idx + 1
-    
+
+    -------------------------------------------------------------------------
+    -- A. Inside fenced code: accumulate lines until closing fence
+    -------------------------------------------------------------------------
     if state.in_code then
       if str_match(line, "^```") then
+        -- Closing fence: exit code mode, do not emit a block here
         state.in_code = false
       else
+        -- Still inside code: append raw line to the last CODE block's lines
         local code_blk = blocks[#blocks]
-        if code_blk then t_insert(code_blk.lines, line) end
+        if code_blk then
+          t_insert(code_blk.lines, line)
+        end
       end
+
+    -------------------------------------------------------------------------
+    -- B. Normal mode: run block rules, else treat as paragraph text
+    -------------------------------------------------------------------------
     else
       local matched = false
+
+      -- Try each block rule in order. The first one that matches wins.
       for _, rule in ipairs(block_rules) do
+        -- One match call per rule; works for both captured and non-captured patterns.
         local c1, c2, c3 = str_match(line, rule[1])
-        if c1 or str_match(line, rule[1]) then
+        if c1 then
+          -- Handler signature: (state, line, c1, c2, c3, line_idx)
           rule[2](state, line, c1, c2, c3, line_idx)
           matched = true
           break
         end
       end
-      if not matched then 
-        handle_paragraph(state, line)
+
+      if not matched then
+        -- No block rule matched: treat as paragraph content.
+        -- Use the same handler so "line" metadata is consistent.
+        handle_paragraph(state, line, nil, nil, nil, line_idx)
       end
-      if matched and not state.last_was_blank_pending then 
-        state.last_was_blank = false 
-      end
+      -- Note: we do NOT touch last_was_blank here.
+      -- Each handler is responsible for updating state.last_was_blank explicitly.
     end
   end
 
   return blocks
 end
+
 
 -- Helper to find the next occurrence of a specific rule
 local function scan_next(text, rule, pos)

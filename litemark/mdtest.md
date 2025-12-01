@@ -1,15 +1,27 @@
+# Heading 8-)
+## Heading
+### Heading
+#### Heading
+##### Heading
+###### Heading
+
+
 # **LiteNotes** *Demo* ~~Example~~
 
-**LiteNotes** is a native Markdown viewer plugin for LiteXL. It renders `markdown` files directly in the editor using a custom Lua layout engine.
+**LiteNotes** is a native Markdown viewer plugin for LiteXL. 
+
+It renders `markdown` files directly in the editor using a custom Lua layout engine.
 
 ## `Usage` Guide
 
-This document demonstrates the current rendering capabilities. You can view your notes in **Read Mode** or switch to standard editing.
+This document demonstrates the current rendering capabilities. 
+You can view your notes in **Read Mode** or switch to standard editing.
 
 - **Workflow**:
   - `Read Mode`: Clean layout for viewing notes.
   - `Edit Mode`: Standard LiteXL document editor.
-  - *Double-click* anywhere to toggle modes.
+  - *Double-click* the litemark view to enter `EDIT MODE`.
+  - *Click another view* to return to `READ MODE`.
 - **Syntax Support**:
   1. **Headers**: Various sizes are supported.
   2. **Text**: Standard styles like **bold** and *italic*.
@@ -26,7 +38,8 @@ This document demonstrates the current rendering capabilities. You can view your
 
 ---
 
-### Code Styling
+## Code Styling
+
 
 Code blocks are supported with dedicated background rendering (`style.line_highlight`) and monospaced fonts.
 

@@ -1,5 +1,5 @@
 -- mod-version:3
--- LiteMark: Systems-style MD Renderer
+-- LiteMark: MD Renderer and project notes.
 -- Flow: Init -> File Check -> View Swap -> Render Pipeline
 
 local core    = require "core"
@@ -184,7 +184,7 @@ end
 function NoteReadView:update_layout()
   local ver = self.doc:get_change_id()
   
-  -- Explicitly reserve space for the scrollbar gutter
+    -- Explicitly reserve space for the scrollbar gutter
   local gutter = style.scrollbar_size or 0
   local w = self.size.x - gutter
   
@@ -254,14 +254,20 @@ function NoteReadView:draw()
   end
   
   core.pop_clip_rect()
+  
   -- Active View Hilight 
   if core.active_view == self then
-    local b = 1
-    renderer.draw_rect(self.position.x, self.position.y, self.size.x, b, style.accent) -- Top
-    renderer.draw_rect(self.position.x, self.position.y + self.size.y - b, self.size.x, b, style.accent) -- Bottom
-    renderer.draw_rect(self.position.x, self.position.y, b, self.size.y, style.accent) -- Left
-    renderer.draw_rect(self.position.x + self.size.x - b, self.position.y, b, self.size.y, style.accent) -- Right
+    local border_w     = 2
+    local border_color = style.syntax["keyword"]
+
+    renderer.draw_rect(self.position.x,                    self.position.y,                      self.size.x,                 border_w, border_color) -- Top
+    renderer.draw_rect(self.position.x,                    self.position.y + self.size.y - border_w, self.size.x,             border_w, border_color) -- Bottom
+    renderer.draw_rect(self.position.x,                    self.position.y,                      border_w,                   self.size.y, border_color) -- Left
+    renderer.draw_rect(self.position.x + self.size.x - border_w, self.position.y,                border_w,                   self.size.y, border_color) -- Right
   end
+
+
+
   -- Draw Scrollbar last to overlay content
   self:draw_scrollbar()
 
@@ -307,8 +313,9 @@ local function open_in_panel(view)
   end
 end
 
+
 ----------------------------------------------------------------------
--- 6. commands
+-- 6. COMMANDS
 ----------------------------------------------------------------------
 
 command.add(nil, {
@@ -330,19 +337,17 @@ command.add(nil, {
 
     open_in_panel(NoteReadView(doc, "project"))
   end,
-  
-  ["litemark:open note"] = function()
+
+  ["litemark:view current markdown"] = function()
     local active = core.active_view
-    if active.doc and active.doc.filename:match("%.md$") then
+    if not active or not active.doc then return end
+
+    local filename = active.doc.filename
+    if filename and filename:match("%.md$") then
       open_in_panel(NoteReadView(active.doc, "markdown"))
     else
-      command.perform("litemark:view project notes")
+      core.error("LiteMark: current file is not a Markdown document")
     end
-  end,
-
-  -- Context menu entry for .md DocViews: reuse existing behavior.
-  ["litemark:note"] = function()
-    command.perform("litemark:open note")
   end,
 
 })
@@ -352,9 +357,9 @@ command.add(nil, {
 ----------------------------------------------------------------------
 
 if core.status_view then
-  -- Left side: mode + path
+  -- Left side: path only
   core.status_view:add_item({
-    name = "litemark:status",
+    name = "litemark:status-path",
     alignment = StatusView.Item.LEFT,
     position = 1,
     
@@ -364,29 +369,16 @@ if core.status_view then
 
     get_item = function()
       local view = core.active_view
-      local sep = "   |   "
-      local sep_color = style.syntax["comment"] or style.dim
       local path = (view and view.doc and view.doc.filename) or "Untitled"
-
-      if view:is(NoteEditView) then
-        return {
-          style.accent, "EDIT",
-          sep_color, style.font, sep,
-          style.text, path,
-        }
-      else
-        return {
-          style.text, "READ",
-          sep_color, style.font, sep,
-          style.text, path,
-        }
-      end
+      return {
+        style.text, path,
+      }
     end
   })
 
-  -- Right side: plugin label
+  -- Right side: READ / EDIT mode tag
   core.status_view:add_item({
-    name = "litemark:label",
+    name = "litemark:status-mode",
     alignment = StatusView.Item.RIGHT,
     position = 1,
 
@@ -395,12 +387,24 @@ if core.status_view then
     end,
 
     get_item = function()
+      local view = core.active_view
+      local mode_text, mode_color
+
+      if view and view:is(NoteEditView) then
+        mode_text  = "EDIT"
+        mode_color = style.syntax["string"]
+      else
+        mode_text  = "READ"
+        mode_color = style.accent
+      end
+
       return {
-        style.dim, style.font, "LiteMark - Alpha : Goblin Jelly",
+        mode_color, mode_text,
       }
     end
   })
 end
+
 
 
 ----------------------------------------------------------------------
@@ -418,5 +422,5 @@ contextmenu:register(function()
     and view.doc.filename
     and view.doc.filename:match("%.md$")
 end, {
-  { text = "Notes View", command = "litemark:open note" }
+  { text = "View Markdown", command = "litemark:view current markdown" }
 })
