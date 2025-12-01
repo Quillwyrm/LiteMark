@@ -88,7 +88,6 @@ LiteMark aims to cover the common, everyday Markdown you see in READMEs and note
 
 Everything else is treated as plain text (still laid out nicely, just without special semantics).
 
-
 ## Not (yet) supported
 
 These are intentionally **not** handled specially right now:
