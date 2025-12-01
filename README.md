@@ -4,7 +4,7 @@ LiteMark is a lightweight Markdown reader and project-notes plugin for [Lite XL]
 
 It adds a dedicated “read mode” view for `.md` files and an optional per-project notes file, without changing how the core editor works.
 
-## Features
+## Features:
 
 - **Markdown read view**
   - Render any `.md` file in a clean, non-editable view.
@@ -29,12 +29,9 @@ It adds a dedicated “read mode” view for `.md` files and an optional per-pro
 - **Context menu integration**
   - Right-click in a `.md` `DocView` → “View Markdown” to open the same buffer in LiteMark.
     
-- **Markdown rendering in your editor!** 
-  - [x] Productive
-  - [x] Intuative
-  - [x] *Really cool*
+> **Markdown rendering in your editor!**
 
-## Usage
+## Usage Guide:
 
 ### Commands
 
@@ -65,7 +62,7 @@ There is also an alias `litemark:note` which currently just delegates to “View
 - `LiteMark: View Project Notes` chooses a notes file based on the current project root and opens it in read mode.
 - Notes are stored under `USERDIR/project_notes/` using a sanitized project name, so they don’t clutter your project tree.
 
-## Markdown coverage
+## Markdown coverage:
 
 LiteMark aims to cover the common, everyday Markdown you see in READMEs and notes, not the entire CommonMark + extensions ecosystem.
 
@@ -88,7 +85,7 @@ LiteMark aims to cover the common, everyday Markdown you see in READMEs and note
 
 Everything else is treated as plain text (still laid out nicely, just without special semantics).
 
-## Not (yet) supported
+## Not *(yet)* supported:
 
 These are intentionally **not** handled specially right now:
 
