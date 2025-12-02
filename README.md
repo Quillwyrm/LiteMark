@@ -96,7 +96,7 @@ Everything else is treated as plain text (still laid out nicely, just without sp
 
 ## Not *(yet)* supported:
 
-These are intentionally **not** handled specially right now:
+These are fearures are currently **not** supported by the LiteMark renderer:
 
 - Setext headings (`Title` followed by `====` or `----`)
 - Links and autolinks: `[label](url)`, `<https://example.com>`
@@ -107,6 +107,12 @@ These are intentionally **not** handled specially right now:
 - Footnotes, math, admonitions, or other extension syntax
 
 If you use these, they will still render as readable text, just without special styling or layout.
+More features to come in later releases including: 
+- interactive links (URL/Project file)
+- Table rendering
+- Images (from project dir)
+- Table of Contents Navigator
+- and more!
 
 ---
 
