@@ -7,16 +7,17 @@ It adds a dedicated “read mode” view for `.md` files and an optional per-pro
 ## Features:
 
 - **Markdown read view**
-  - View any `.md` file in a clean, styled Markdown view.
+  - View any `.md` file in a clean, styled Markdown window.
   - Uses Lite XL’s theme colors (`style.text`, `style.syntax[...]`) so it matches your current theme.
-
-- **Per-project notes**
-  - One notes file per project, stored under `USERDIR/project_notes/`.
-  - Opened via a dedicated command, independent of whatever file you’re currently editing.
+  - Intuative. You can split, move and resize just like any Lite XL view. 
 
 - **Read / Edit modes**
   - Double-click inside the read view to switch to a normal editor view for that document.
   - Leaving the edit view automatically saves and returns to read mode.
+
+- **Per-project notes**
+  - One notes file per project, stored under `USERDIR/project_notes/`.
+  - Opened via a dedicated command, independent of whatever file you’re currently editing.
 
 - **Code fences with syntax highlighting**
   - If LiteXL has a syntax for the given `lang`, the code is tokenized and colored.
