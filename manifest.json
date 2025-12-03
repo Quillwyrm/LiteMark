@@ -1,0 +1,9 @@
+{
+  "addons": [{
+    "id": "litemark",
+    "name": "LiteMark",
+    "description": "A markdown previewer.",
+    "version": "0.1",
+    "path": "litemark"
+  }]
+}
