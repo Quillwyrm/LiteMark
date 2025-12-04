@@ -181,7 +181,7 @@ function NoteReadView:on_mouse_pressed(btn, x, y, clicks)
   return false
 end
 
-function NoteReadView:update_layout()
+function NoteReadView:update_layout(force)
   local ver = self.doc:get_change_id()
   
     -- Explicitly reserve space for the scrollbar gutter
@@ -190,7 +190,7 @@ function NoteReadView:update_layout()
   
   -- Theme Invalidation Check
   local theme_changed = (self._layout_bg ~= style.background2)
-  if self._layout_ver == ver and self._layout_w == w and not theme_changed then return end
+  if not force and self._layout_ver == ver and self._layout_w == w and not theme_changed then return end
 
   if theme_changed then
     layout.load_assets(config)
