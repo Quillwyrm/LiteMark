@@ -326,8 +326,8 @@ function NoteReadView:draw()
   core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
   
   -- Culling logic with safety buffer
-  local min_y = -oy - 100            -- Top of screen (minus buffer)
-  local max_y = -oy + self.size.y + 100 -- Bottom of screen (plus buffer)
+  local min_y = self.scroll.y            -- Top of view
+  local max_y = self.scroll.y + self.size.y -- Bottom of view
 
   for i = 1, #cmds do
     local cmd = cmds[i]
